@@ -19,7 +19,20 @@ ctg_all <- read.csv("cardioto_all_corr.csv",row.names = 1)
 download.file('https://staff.elka.pw.edu.pl/~rbembeni/dane/cardioto_noClass_corr.csv','cardioto_noClass_corr.csv')
 ctg_noClass <- read.csv("cardioto_noClass_corr.csv",row.names = 1)
 
+# Default params Kmeans on unpreprocessed data
 ctg_noClass.kmeans_basic <- eclust(ctg_noClass, "kmeans", k=max(ctg_all$CLASS), graph=TRUE)
+
+# Silhouette evaluation 
+silinfo <- fviz_silhouette(ctg_noClass.kmeans_basic, palette="jco")
+basic_avg_width <- mean(silinfo$data$sil_width)
+basic_avg_width
+#Average silhouette width: 0.2001795
+
+# Rand index
+clusters_stats <- cluster.stats(dist(ctg_noClass), ctg_all$CLASS, ctg_noClass.kmeans_basic$cluster)
+basic_rand_index <- clusters_stats$corrected.rand
+basic_rand_index
+# Rand Index: 0.11
 
   #---------- DATA PREPROCESSING ----------
 colnames(ctg_noClass)
@@ -42,17 +55,7 @@ data <- data[!duplicated(ctg_all), ]
 
   #---------- Data statistics and analysis ----------
 
-# # 1. For ctg_noClass
-# # Summary of the columns
-# summary(ctg_noClass)
-# # Structure of the colmuns and their data types
-# str(ctg_noClass)
-# # Histograms for numeric columns
-# hist(ctg_noClass$Mean, main = "Histogram of Mean", xlab = "Mean")
-# # Boxplots to detect potential outliers
-# boxplot(ctg_noClass$Variance, main = "Boxplot of Variance", horizontal = TRUE)
-
-#2. For ctg_all
+# For ctg_all
 # Summary of the columns
 summary(ctg_all)
 # Structure of the colmuns and their data types
@@ -70,38 +73,42 @@ prop.table(table(ctg_all$NSP))
 MAX_NUM_GROUPS <- 15
 
     #---------- Kmeans ----------
-kmeans.wss <- vector(mode = "integer" ,length = MAX_NUM_GROUPS)
 kmeans.rand_index <- vector(mode = "double" ,length = MAX_NUM_GROUPS)
 
 
 for (i in 1:MAX_NUM_GROUPS) {
   kmean <- eclust(ctg_noClass, "kmeans", k=i, graph=FALSE)
-
   # Rand index
   clusters_stats <- cluster.stats(dist(ctg_noClass), ctg_all$CLASS, kmean$cluster)
   kmeans.rand_index[i] <- clusters_stats$corrected.rand
-  
-  # total within-cluster sum of squares
-  kmeans.wss[i] <- kmean$tot.withinss
 }
 
 # Average silouhette width per number of groups => find optimal number of groups
-fviz_nbclust(ctg_noClass, kmeans, method = "silhouette")+theme_classic()
+fviz_nbclust(ctg_noClass, kmeans, method = "silhouette") +
+  theme_classic() +
+  ggtitle("Average Silhouette - Kmeans") +
+  geom_hline(yintercept = basic_avg_width, linetype = "dashed", color = "red")
 
-# total within-cluster sum of squares per number of groups
-plot(1:MAX_NUM_GROUPS, kmeans.wss, type = "b", 
-     xlab = "Number of groups", 
-     ylab = "Total within-cluster sum of squares")
+# ==> 2 is the optimal number of groups according to the average silhouette criteria
+# The average silhouette seem to be quite slim in general, indicating poor clustering performance, 
+# but still better than the basic kmeans in most case (not in the case of k=10, reference grouping)
 
-# Rand Index per number of groups
-plot(1:MAX_NUM_GROUPS, kmeans.rand_index, type="b",
+# Plot Rand Index per number of groups
+plot(1:MAX_NUM_GROUPS, kmeans.rand_index, type = "b",
      xlab = "Number of groups",
-     ylab = "Rand index")
+     ylab = "Rand Index",
+     main = "Rand Index per Number of Groups - Kmeans",  # Use 'main' for the title
+     pch = 16, col = "blue")  # Add points and color for better visualization
+
+# Add horizontal line for basic Rand Index
+abline(h = basic_rand_index, col = "red", lty = 2)  # Dashed red line for baseline
+
+# ==> 6 is the optimal number of groups according to the Rand Index criteria
+# Rand index is in average above the value found with basic kmeans, even for 
+# k=10 (basic grouping)
 
     #---------- Partitioning around medoids ----------
-pam.wss <- vector(mode = "integer" ,length = MAX_NUM_GROUPS)
 pam.rand_index <- vector(mode = "double" ,length = MAX_NUM_GROUPS)
-
 
 for (i in 1:MAX_NUM_GROUPS) {
   pam <- eclust(ctg_noClass, "pam", k=i, graph=FALSE)
@@ -109,49 +116,84 @@ for (i in 1:MAX_NUM_GROUPS) {
   # Rand index
   clusters_stats <- cluster.stats(dist(ctg_noClass), ctg_all$CLASS, pam$cluster)
   pam.rand_index[i] <- clusters_stats$corrected.rand
-  
-  # total within-cluster sum of squares
-  pam.wss[i] <- pam$tot.withinss
 }
 
-# Average silouhette width per number of groups
-fviz_nbclust(ctg_noClass, pam, method = "silhouette")+theme_classic()
+# Average silouhette width per number of groups => find optimal number of groups
+fviz_nbclust(ctg_noClass, pam, method = "silhouette") +
+  theme_classic() +
+  ggtitle("Average Silhouette - PAM") +
+  geom_hline(yintercept = basic_avg_width, linetype = "dashed", color = "red")
 
-# total within-cluster sum of squares per number of groups
-plot(1:MAX_NUM_GROUPS, kmeans.wss, type = "b", 
-     xlab = "Number of groups", 
-     ylab = "Total within-cluster sum of squares")
+# ==> Agan, 2 clusters seem to be optimal according to the Avergae silhouette criteria
 
-# Rand Index per number of groups
-plot(1:MAX_NUM_GROUPS, kmeans.rand_index, type="b",
+# Plot Rand Index per number of groups
+plot(1:MAX_NUM_GROUPS, pam.rand_index, type = "b",
      xlab = "Number of groups",
-     ylab = "Rand index")
+     ylab = "Rand Index",
+     main = "Rand Index per Number of Groups - PAM",  # Use 'main' for the title
+     pch = 16, col = "blue")  # Add points and color for better visualization
+
+# Add horizontal line for basic Rand Index
+abline(h = basic_rand_index, col = "red", lty = 2)  # Dashed red line for baseline
+
+# ==> 6 clusters is optimal according to the Rand Index criteria
+# Same general conclusions as for the kmeans algorithm
+# PAM does not solve our poor clustering problem
 
     #---------- DBSCAN ----------
-dbscan.eps <- vector(mode = "double" ,length = MAX_NUM_GROUPS)
-dbscan.rand_index <- vector(mode = "double" ,length = MAX_NUM_GROUPS)
+EPSILON <- seq(1, 10, by = 2) 
+MINPTS <- seq(5,10, by =1) 
 
+# Initialize results storage
+results <- data.frame(eps = numeric(), minPts = numeric(), 
+                      avg_sil_width = numeric(), rand_index = numeric())
 
-for (i in 1:MAX_NUM_GROUPS) {
-  dbscan <- dbscan(ctg_noClass, i)
-  
-  # Rand index
-  clusters_stats <- cluster.stats(dist(ctg_noClass), ctg_all$CLASS, dbscan$cluster)
-  dbscan.rand_index[i] <- clusters_stats$corrected.rand
-  
-  dbscan$eps
+# Nested loops to iterate over eps and MinPts
+for (eps in EPSILON) {
+  for (minPts in MINPTS) {
+    
+    # Run DBSCAN
+    dbscan_result <- dbscan(ctg_noClass, eps = eps,MinPts = minPts)
+    
+    # Exclude noise points (cluster 0)
+    clusters <- dbscan_result$cluster
+    valid_points <- clusters != 0
+    
+    # Silhouette calculation (only for valid points)
+    if (sum(valid_points) > 1) {  # Ensure enough points for silhouette calculation
+      sil <- silhouette(clusters, dist(ctg_noClass))
+      avg_sil_width <- mean(sil[, 3])
+    } else {
+      avg_sil_width <- NA  # Not enough points for silhouette
+    }
+    
+    # Rand index calculation
+    clusters_stats <- cluster.stats(dist(ctg_noClass), ctg_all$CLASS, clusters)
+    rand_index <- clusters_stats$corrected.rand
+    
+    # Store results
+    results <- rbind(results, data.frame(eps = eps, minPts = minPts, 
+                                         avg_sil_width = avg_sil_width, 
+                                         rand_index = rand_index))
+  }
 }
 
-# total within-cluster sum of squares per number of groups
-plot(1:MAX_NUM_GROUPS, kmeans.wss, type = "b", 
-     xlab = "Number of groups", 
-     ylab = "Total within-cluster sum of squares")
+# Print results
+print(results)
 
-# Rand Index per number of groups
-plot(1:MAX_NUM_GROUPS, dbscan.rand_index, type="b",
-     xlab = "Number of groups",
-     ylab = "Rand index")
+# Optional: Find the best parameter combination based on silhouette or Rand index
+best_sil <- results[which.max(results$avg_sil_width), ]
+best_rand <- results[which.max(results$rand_index), ]
 
+print("Best parameters based on silhouette width:")
+print(best_sil)
+
+print("Best parameters based on Rand index:")
+print(best_rand)
+
+# DBSCAN seems to perform terribaly on this database. This might be because there
+# are thre points (2127,2128 and 2129) that are "far" from the other points 
+# cf. l.23 - ctg_noClass.kmeans_basic <- eclust(ctg_noClass, "kmeans", k=max(ctg_all$CLASS), graph=TRUE)
   
 ######## Wine ########
   #---------- Data import ----------
